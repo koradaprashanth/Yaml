@@ -1,0 +1,73 @@
+pool:
+  name: BGC-TC-POOL
+  demands:
+  - msbuild
+  - visualstudio
+  - vstest
+  - java
+  - java
+
+#Your build pipeline references an undefined variable named ‘buildConfiguration’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
+variables:
+  BuildConfiguration: 'debug'
+
+steps:
+- task: UseDotNet@2
+  displayName: 'Use .NET Core sdk 6.x'
+  inputs:
+    version: 6.x
+
+- task: DotNetCoreCLI@2
+  displayName: 'dotnet restore'
+  inputs:
+    command: restore
+    projects: '**\*.csproj'
+    feedsToUse: config
+    nugetConfigPath: services/Completion.WebApi/NuGet.Config
+
+- task: SonarSource.sonarqube.15B84CA1-B62F-4A2A-A403-89B77A063157.SonarQubePrepare@5
+  displayName: 'Prepare analysis on SonarQube'
+  inputs:
+    SonarQube: 'sonarqube-drillplan'
+    projectKey: 'DrillPlan_Slb.DrillPlan.Completion'
+    projectName: 'DrillPlan_Slb.DrillPlan.Completion'
+    projectVersion: '$(Build.BuildNumber) '
+    extraProperties: |
+     # Additional properties that will be passed to the scanner, 
+     # Put one key=value per line, example:
+     # sonar.exclusions=**/*.bin
+     sonar.cs.vstest.reportsPaths=$(Agent.TempDirectory)\**\*.trx
+     sonar.cs.vscoveragexml.reportsPaths=$(Agent.TempDirectory)\**\*.coveragexml
+     sonar.verbose=true
+
+- task: DotNetCoreCLI@2
+  displayName: 'Install ReportGenerator tool'
+  inputs:
+    command: custom
+    custom: tool
+    arguments: 'install --tool-path . dotnet-reportgenerator-globaltool'
+  enabled: false
+
+- task: DotNetCoreCLI@2
+  displayName: 'dotnet build'
+  inputs:
+    projects: '**/*.sln'
+    arguments: '--configuration $(buildConfiguration)'
+
+- task: DotNetCoreCLI@2
+  displayName: 'dotnet test'
+  inputs:
+    command: test
+    projects: '**/*.*Test.csproj'
+    arguments: '--configuration $(BuildConfiguration) --collect "Code coverage" --logger trx'
+  continueOnError: true
+
+- task: SonarSource.sonarqube.6D01813A-9589-4B15-8491-8164AEB38055.SonarQubeAnalyze@5
+  displayName: 'Run Code Analysis'
+
+- task: SonarSource.sonarqube.291ed61f-1ee4-45d3-b1b0-bf822d9095ef.SonarQubePublish@5
+  displayName: 'Publish Quality Gate Result'
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Artifact: drop'
+
